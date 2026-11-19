@@ -1,0 +1,10 @@
+<resources>
+    <color name="sb_background">#F3F6FB</color>
+    <color name="sb_primary">#2457D6</color>
+    <color name="sb_secondary">#183B8F</color>
+    <color name="sb_accent">#0E8A78</color>
+    <color name="sb_card_button">#E7EDF8</color>
+    <color name="sb_text">#17233B</color>
+    <color name="sb_muted">#66738A</color>
+    <color name="sb_logo_bg">#102A62</color>
+</resources>

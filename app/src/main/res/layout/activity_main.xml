@@ -61,7 +61,7 @@
                 android:id="@+id/setupStatus"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Setup required / सेटअप आवश्यक"
+                android:text="Setup required"
                 android:textColor="@color/sb_muted"
                 android:textSize="13sp" />
 
@@ -69,10 +69,19 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:text="नमस्कार! मी Subnet."
+                android:text="Hello! I am Subnet."
                 android:textColor="@color/sb_text"
                 android:textSize="22sp"
                 android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/learningStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Memory: 0 learned phrases • 0 saved tasks"
+                android:textColor="@color/sb_muted"
+                android:textSize="12sp" />
 
             <TextView
                 android:id="@+id/status"
@@ -83,7 +92,7 @@
                 android:gravity="center_vertical"
                 android:minHeight="76dp"
                 android:padding="14dp"
-                android:text="मी तयार आहे. बोला किंवा command लिहा."
+                android:text="Ready when you are. Speak or type a command."
                 android:textColor="@color/sb_text"
                 android:textSize="16sp" />
 
@@ -93,7 +102,7 @@
                 android:layout_height="56dp"
                 android:layout_marginTop="16dp"
                 android:backgroundTint="@color/sb_primary"
-                android:text="🎙  Speak to Subnet / बोला"
+                android:text="🎙  Start wake listening"
                 android:textAllCaps="false"
                 android:textColor="@android:color/white"
                 android:textSize="16sp" />
@@ -104,7 +113,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
                 android:background="@drawable/input_surface"
-                android:hint="Type a command / आदेश लिहा"
+                android:hint="Type a command in English"
                 android:inputType="textCapSentences"
                 android:minHeight="52dp"
                 android:padding="14dp"
@@ -138,7 +147,7 @@
             android:layout_width="match_parent"
             android:layout_height="50dp"
             android:backgroundTint="@color/sb_card_button"
-            android:text="👤  Owner setup / मालक सेटअप"
+            android:text="👤  Owner setup"
             android:textAllCaps="false"
             android:textColor="@color/sb_text" />
 
@@ -178,7 +187,7 @@
             android:layout_marginTop="20dp"
             android:padding="14dp"
             android:background="@drawable/status_surface"
-            android:text="Try: “आईला call कर”  •  “WhatsApp उघड”  •  “note उद्या दूध आणायचे”  •  “teach आई as Aai”"
+            android:text="Try: “Open WhatsApp”  •  “Call Alex”  •  “Note buy groceries”  •  “Teach my office as work”"
             android:textColor="@color/sb_muted"
             android:textSize="13sp" />
 

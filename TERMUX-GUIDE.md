@@ -12,10 +12,10 @@ Assuming the ZIP is in Downloads:
 
 ```bash
 cd ~/storage/downloads
-unzip Subnet-Assistant-Upgrade-v3.zip
+unzip MyOfflineAI-Assistant-updated.zip
 git clone https://github.com/shaileshrakhade/MyOfflineAI-Assistant.git
 cd MyOfflineAI-Assistant
-cp -r ../Subnet-Assistant-Upgrade/. .
+cp -r ../MyOfflineAI-Assistant-updated/. .
 git add .
 git commit -m "Upgrade Subnet Assistant"
 git push

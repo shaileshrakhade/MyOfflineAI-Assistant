@@ -8,6 +8,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.AlarmClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -22,10 +24,15 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var commandInput: EditText
     private lateinit var setupStatus: TextView
+    private lateinit var learningStatus: TextView
     private lateinit var learning: LearningStore
     private lateinit var engine: CommandEngine
 
     private var speechRecognizer: SpeechRecognizer? = null
+    private val wakeHandler = Handler(Looper.getMainLooper())
+    private var wakeMode = false
+    private var screenActive = false
+    private var commandSession = false
     private var pendingContacts: List<PhoneMatch> = emptyList()
     private var pendingContactName: String = ""
 
@@ -44,10 +51,13 @@ class MainActivity : Activity() {
         status = findViewById(R.id.status)
         commandInput = findViewById(R.id.commandInput)
         setupStatus = findViewById(R.id.setupStatus)
+        learningStatus = findViewById(R.id.learningStatus)
         learning = LearningStore(this)
         engine = CommandEngine(learning)
 
-        findViewById<Button>(R.id.listenButton).setOnClickListener { listen() }
+        findViewById<Button>(R.id.listenButton).setOnClickListener {
+            if (wakeMode) stopWakeListening() else startWakeListening()
+        }
         findViewById<Button>(R.id.runButton).setOnClickListener {
             runCommand(commandInput.text.toString())
         }
@@ -58,22 +68,19 @@ class MainActivity : Activity() {
 
         refreshSetupStatus()
         if (!getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("complete", false)) {
-            status.text = "पहिल्यांदा Owner Setup करा. / Please complete owner setup first."
+            status.text = "Please complete owner setup first."
         }
     }
 
     private fun refreshSetupStatus() {
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
         val owner = prefs.getString("owner_name", null)
-        setupStatus.text = if (owner.isNullOrBlank()) {
-            "Setup required / सेटअप आवश्यक"
-        } else {
-            "Owner: $owner"
-        }
+        setupStatus.text = if (owner.isNullOrBlank()) "Setup required" else "Owner: $owner"
+        learningStatus.text = "Memory: ${learning.learnedPhraseCount()} learned phrases  •  ${learning.taskCount()} saved tasks"
     }
 
     private fun ownerSetup() {
-        val input = EditText(this).apply { hint = "Your name / तुमचे नाव" }
+        val input = EditText(this).apply { hint = "Your name" }
         AlertDialog.Builder(this)
             .setTitle("Subnet owner setup")
             .setMessage("Set the owner profile for this device. This profile is local to this phone.")
@@ -90,117 +97,130 @@ class MainActivity : Activity() {
                     .putBoolean("complete", true)
                     .apply()
                 refreshSetupStatus()
-                speakStatus("Setup complete. नमस्कार $name!")
+                speakStatus("Setup complete. Hello $name!")
             }
             .show()
     }
 
-    /**
-     * Uses Android's SpeechRecognizer directly instead of launching the
-     * separate Google Voice Search activity. Offline recognition is used
-     * when this device exposes an installed on-device recognition service.
+    /** Wake monitoring works while this screen is visible. Android SpeechRecognizer
+     * is session-based; we restart short sessions to listen for either wake phrase.
+     * Background/locked-screen hotword support requires a dedicated foreground service
+     * and an always-on keyword model, which this starter does not yet bundle.
      */
-    private fun listen() {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
+    private fun startWakeListening() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_AUDIO)
             return
         }
+        wakeMode = true
+        commandSession = false
+        findViewById<Button>(R.id.listenButton).text = "Stop wake listening"
+        status.text = "Listening for Hey Subnet or Hey Bro..."
+        startRecognition(true)
+    }
 
+    private fun stopWakeListening() {
+        wakeMode = false
+        commandSession = false
+        wakeHandler.removeCallbacksAndMessages(null)
+        speechRecognizer?.cancel()
+        speechRecognizer?.destroy()
+        speechRecognizer = null
+        findViewById<Button>(R.id.listenButton).text = "Start wake listening"
+        status.text = "Wake listening is off. Tap Start wake listening when ready."
+    }
+
+    private fun startRecognition(wakeDetection: Boolean) {
+        if (wakeDetection && (!wakeMode || !screenActive)) return
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             speakStatus("Speech recognition is not available on this device.")
             return
         }
-
         try {
             speechRecognizer?.cancel()
             speechRecognizer?.destroy()
-            speechRecognizer = null
-
-            speechRecognizer = if (
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
-            ) {
+            speechRecognizer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
                 SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
             } else {
                 SpeechRecognizer.createSpeechRecognizer(this)
             }
-
             speechRecognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
-                    status.text = "Listening... बोला, Subnet ऐकत आहे."
+                    status.text = if (wakeDetection) "Waiting for Hey Subnet or Hey Bro..." else "I'm listening. Speak your command."
                 }
-
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
-
-                override fun onEndOfSpeech() {
-                    status.text = "Processing your command..."
-                }
-
+                override fun onEndOfSpeech() { status.text = "Processing..." }
                 override fun onError(error: Int) {
-                    val message = when (error) {
-                        SpeechRecognizer.ERROR_AUDIO -> "Microphone audio error."
-                        SpeechRecognizer.ERROR_CLIENT -> "Speech recognition was interrupted. Try again."
-                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
-                            "Microphone permission is required."
-                        SpeechRecognizer.ERROR_NETWORK ->
-                            "Recognition network error. Check your connection."
-                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
-                            "Recognition network timeout."
-                        SpeechRecognizer.ERROR_NO_MATCH ->
-                            "Could not understand. Please try again."
-                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
-                            "Speech recognizer is busy. Try again."
-                        SpeechRecognizer.ERROR_SERVER ->
-                            "Speech recognition service error."
-                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
-                            "No speech detected. Please try again."
-                        else -> "Speech recognition error: $error"
+                    if (wakeDetection && wakeMode && screenActive) {
+                        wakeHandler.postDelayed({ startRecognition(true) }, 650)
+                    } else if (!wakeDetection) {
+                        commandSession = false
+                        val message = when (error) {
+                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is required."
+                            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Speech recognition network error."
+                            SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "I didn't catch that. Please try again."
+                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognizer is busy. Please try again."
+                            else -> "Speech recognition error. Please try again."
+                        }
+                        speakStatus(message)
+                        if (wakeMode && screenActive) wakeHandler.postDelayed({ startRecognition(true) }, 1000)
                     }
-                    speakStatus(message)
                 }
-
                 override fun onResults(results: Bundle?) {
-                    val spoken = results
-                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull()
-                        .orEmpty()
-
-                    if (spoken.isNotBlank()) {
-                        commandInput.setText(spoken)
-                        status.text = "You said: $spoken"
-                        runCommand(spoken)
+                    val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                    if (wakeDetection) {
+                        val afterWake = removeWakePhrase(spoken)
+                        if (afterWake != null) {
+                            status.text = "Subnet is awake."
+                            if (afterWake.isNotBlank()) {
+                                commandInput.setText(afterWake)
+                                runCommand(afterWake)
+                                wakeHandler.postDelayed({ if (wakeMode && screenActive) startRecognition(true) }, 1400)
+                            } else {
+                                commandSession = true
+                                wakeHandler.postDelayed({ startRecognition(false) }, 350)
+                            }
+                        } else if (wakeMode && screenActive) {
+                            wakeHandler.postDelayed({ startRecognition(true) }, 400)
+                        }
                     } else {
-                        speakStatus("Please try again.")
+                        commandSession = false
+                        if (spoken.isNotBlank()) {
+                            commandInput.setText(spoken)
+                            runCommand(spoken)
+                        } else {
+                            speakStatus("I didn't catch that. Please try again.")
+                        }
+                        if (wakeMode && screenActive) wakeHandler.postDelayed({ startRecognition(true) }, 1200)
                     }
                 }
-
                 override fun onPartialResults(partialResults: Bundle?) {}
                 override fun onEvent(eventType: Int, params: Bundle?) {}
             })
-
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(
-                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                )
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "mr-IN")
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "mr-IN")
-                putExtra(
-                    RecognizerIntent.EXTRA_PROMPT,
-                    "Speak to Subnet / Subnet ला बोला"
-                )
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-US")
+                putExtra(RecognizerIntent.EXTRA_PROMPT, if (wakeDetection) "Say Hey Subnet or Hey Bro" else "Speak your command in English")
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             }
-
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
+            commandSession = false
             speakStatus("Unable to start microphone: ${e.localizedMessage ?: "unknown error"}")
+            if (wakeDetection && wakeMode && screenActive) wakeHandler.postDelayed({ startRecognition(true) }, 1500)
         }
+    }
+
+    /** Null means no supported wake phrase was recognized. */
+    private fun removeWakePhrase(transcript: String): String? {
+        val wakePattern = Regex("\\b(?:hey\\s+subnet|subnet|hey\\s+bro)\\b", RegexOption.IGNORE_CASE)
+        val match = wakePattern.find(transcript) ?: return null
+        return transcript.removeRange(match.range).trim().trim(',', '.', '!', '?')
     }
 
     @Deprecated("Legacy activity result API retained for compatibility with this starter")
@@ -242,20 +262,24 @@ class MainActivity : Activity() {
             return
         }
 
-        when (val command = engine.parse(raw)) {
+        val command = engine.parse(raw)
+        learning.recordTask(raw, command::class.simpleName ?: "Command")
+        refreshSetupStatus()
+        when (command) {
             is AssistantCommand.Call -> findContact(command.contact)
             is AssistantCommand.OpenApp -> openApp(command.app)
             is AssistantCommand.Note -> saveNote(command.text)
             is AssistantCommand.Alarm -> setAlarm(command.time)
             is AssistantCommand.Teach -> {
                 learning.addAlias(command.phrase, command.meaning)
-                speakStatus("शिकलो. ${command.phrase} means ${command.meaning}.")
+                refreshSetupStatus()
+                speakStatus("Learned: ${command.phrase} means ${command.meaning}.")
             }
             is AssistantCommand.Choose -> choosePending(command.index)
             AssistantCommand.Help ->
-                speakStatus("तुम्ही Call, Open, Note, Alarm आणि Teach commands वापरू शकता.")
+                speakStatus("Try: call a contact, open an app, save a note, set an alarm, or teach a phrase.")
             AssistantCommand.Unknown ->
-                speakStatus("माफ करा, समजले नाही. कृपया पुन्हा सांगा.")
+                speakStatus("Sorry, I did not understand. Please try again.")
         }
     }
 
@@ -270,7 +294,7 @@ class MainActivity : Activity() {
 
         val matches = ContactRepository(this).findMatches(query)
         if (matches.isEmpty()) {
-            speakStatus("Contact सापडला नाही: $query")
+            speakStatus("Contact not found: $query")
             return
         }
 
@@ -281,17 +305,17 @@ class MainActivity : Activity() {
             val choices = matches.mapIndexed { index, item ->
                 "${index + 1}. ${item.contactName} — ${item.number}"
             }.joinToString("\n")
-            speakStatus("एकापेक्षा जास्त पर्याय सापडले. पहिला, दुसरा किंवा क्रमांक सांगा.\n$choices")
+            speakStatus("Multiple contacts found. Choose an option number.\n$choices")
         }
     }
 
     private fun choosePending(index: Int) {
         if (pendingContacts.isEmpty()) {
-            speakStatus("आत्ता निवडण्यासाठी पर्याय नाहीत.")
+            speakStatus("There are no pending choices.")
             return
         }
         if (index !in pendingContacts.indices) {
-            speakStatus("तो पर्याय उपलब्ध नाही. पुन्हा निवडा.")
+            speakStatus("That option is not available. Please choose again.")
             return
         }
         confirmNumber(pendingContacts[index])
@@ -357,7 +381,7 @@ class MainActivity : Activity() {
         openFileOutput("notes.txt", MODE_APPEND).bufferedWriter().use {
             it.append("${System.currentTimeMillis()} | $note\n")
         }
-        speakStatus("नोंद सेव्ह केली.")
+        speakStatus("Note saved.")
     }
 
     private fun setAlarm(raw: String) {
@@ -366,7 +390,7 @@ class MainActivity : Activity() {
         val match = regex.find(text)
 
         if (match == null) {
-            speakStatus("वेळ समजली नाही. उदाहरण: 7:30 AM")
+            speakStatus("I could not understand the time. Example: 7:30 AM.")
             return
         }
 
@@ -416,12 +440,12 @@ class MainActivity : Activity() {
 
     private fun suggestFeature() {
         val titleInput = EditText(this).apply {
-            hint = "Feature title / काय हवे आहे?"
+            hint = "Feature title"
             setSingleLine(true)
         }
 
         val detailsInput = EditText(this).apply {
-            hint = "Describe your idea in Marathi or English..."
+            hint = "Describe your idea in English..."
             minLines = 3
             maxLines = 6
             setPadding(24, 18, 24, 18)
@@ -498,7 +522,7 @@ class MainActivity : Activity() {
         when (requestCode) {
             REQ_AUDIO -> {
                 if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-                    listen()
+                    startWakeListening()
                 } else {
                     speakStatus("Microphone permission is required.")
                 }
@@ -519,7 +543,22 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        screenActive = true
+        if (wakeMode && !commandSession) wakeHandler.postDelayed({ startRecognition(true) }, 300)
+    }
+
+    override fun onPause() {
+        screenActive = false
+        commandSession = false
+        speechRecognizer?.cancel()
+        super.onPause()
+    }
+
     override fun onDestroy() {
+        wakeMode = false
+        wakeHandler.removeCallbacksAndMessages(null)
         speechRecognizer?.cancel()
         speechRecognizer?.destroy()
         speechRecognizer = null

@@ -16,52 +16,37 @@ sealed class AssistantCommand {
 class CommandEngine(private val learning: LearningStore) {
     fun parse(raw: String): AssistantCommand {
         val text = raw.trim()
-        val lower = text.lowercase(Locale.ROOT)
         if (text.isBlank()) return AssistantCommand.Unknown
+        val lower = text.lowercase(Locale.ROOT)
 
-        val teachEnglish = Regex("^teach\\s+(.+?)\\s+(?:as|means)\\s+(.+)$", RegexOption.IGNORE_CASE).find(text)
-        if (teachEnglish != null) return AssistantCommand.Teach(teachEnglish.groupValues[1], teachEnglish.groupValues[2])
-
-        val teachMarathi = Regex("^शिकव\\s+(.+?)\\s+(?:म्हणजे|असे)\\s+(.+)$").find(text)
-        if (teachMarathi != null) return AssistantCommand.Teach(teachMarathi.groupValues[1], teachMarathi.groupValues[2])
+        val teach = Regex("^teach\\s+(.+?)\\s+(?:as|means|to mean)\\s+(.+)$", RegexOption.IGNORE_CASE).find(text)
+        if (teach != null) return AssistantCommand.Teach(teach.groupValues[1].trim(), teach.groupValues[2].trim())
 
         val choice = choiceIndex(text)
         if (choice != null) return AssistantCommand.Choose(choice)
-
-        if (lower in listOf("help", "मदत", "काय करू शकतो")) return AssistantCommand.Help
+        if (lower in setOf("help", "what can you do", "show commands", "commands")) return AssistantCommand.Help
 
         val resolved = learning.resolve(text)
-        val callPattern = Regex("^(?:call|फोन कर|कॉल कर|कॉल लाव|लाव फोन|डायल कर|फोन लाव)\\s*(.*)$", RegexOption.IGNORE_CASE)
-        val marathiCall = Regex("(.+?)(?:ला|ला फोन|ला कॉल)\\s*(?:call कर|फोन कर|कॉल कर)?$", RegexOption.IGNORE_CASE)
-        val callMatch = callPattern.find(resolved)
-        if (callMatch != null && callMatch.groupValues[1].isNotBlank()) {
-            return AssistantCommand.Call(callMatch.groupValues[1].trim())
+        Regex("^(?:call|phone|dial)\\s+(.+)$", RegexOption.IGNORE_CASE).find(resolved)?.let {
+            return AssistantCommand.Call(it.groupValues[1].trim())
         }
-        val marathiMatch = marathiCall.find(resolved)
-        if (marathiMatch != null && marathiMatch.groupValues[1].isNotBlank()) {
-            return AssistantCommand.Call(marathiMatch.groupValues[1].trim())
+        Regex("^(?:note|remember|save note|write down)\\s+(.+)$", RegexOption.IGNORE_CASE).find(resolved)?.let {
+            return AssistantCommand.Note(it.groupValues[1].trim())
         }
-
-        val noteMatch = Regex("^(?:note|remember|नोंद कर|लक्षात ठेव)\\s*(.*)$", RegexOption.IGNORE_CASE).find(text)
-        if (noteMatch != null && noteMatch.groupValues[1].isNotBlank()) return AssistantCommand.Note(noteMatch.groupValues[1].trim())
-
-        val openMatch = Regex("^(?:open|उघड|चालू कर)\\s+(.+)$", RegexOption.IGNORE_CASE).find(text)
-        if (openMatch != null) return AssistantCommand.OpenApp(openMatch.groupValues[1].trim())
-
-        val alarmMatch = Regex("^(?:set alarm for|alarm|अलार्म लाव|गजर लाव)\\s*(.*)$", RegexOption.IGNORE_CASE).find(text)
-        if (alarmMatch != null && alarmMatch.groupValues[1].isNotBlank()) return AssistantCommand.Alarm(alarmMatch.groupValues[1].trim())
-
+        Regex("^(?:open|launch|start)\\s+(.+)$", RegexOption.IGNORE_CASE).find(resolved)?.let {
+            return AssistantCommand.OpenApp(it.groupValues[1].trim())
+        }
+        Regex("^(?:set\\s+)?alarm(?:\\s+for)?\\s+(.+)$", RegexOption.IGNORE_CASE).find(resolved)?.let {
+            return AssistantCommand.Alarm(it.groupValues[1].trim())
+        }
         return AssistantCommand.Unknown
     }
 
-    private fun choiceIndex(value: String): Int? {
-        val v = value.trim().lowercase(Locale.ROOT)
-        return when (v) {
-            "पहिला", "पहिली", "पहिले", "पहिला नंबर", "एक", "१", "1", "one", "first", "number one" -> 0
-            "दुसरा", "दुसरी", "दुसरे", "दुसरा नंबर", "दोन", "२", "2", "two", "second", "number two" -> 1
-            "तिसरा", "तिसरी", "तीन", "३", "3", "three", "third" -> 2
-            "चौथा", "चार", "४", "4", "four", "fourth" -> 3
-            else -> v.toIntOrNull()?.minus(1)?.takeIf { it >= 0 }
-        }
+    private fun choiceIndex(value: String): Int? = when (value.trim().lowercase(Locale.ROOT)) {
+        "one", "first", "number one", "1" -> 0
+        "two", "second", "number two", "2" -> 1
+        "three", "third", "3" -> 2
+        "four", "fourth", "4" -> 3
+        else -> value.trim().toIntOrNull()?.minus(1)?.takeIf { it >= 0 }
     }
 }

@@ -42,11 +42,21 @@ class CommandEngine(private val learning: LearningStore) {
         return AssistantCommand.Unknown
     }
 
-    private fun choiceIndex(value: String): Int? = when (value.trim().lowercase(Locale.ROOT)) {
-        "one", "first", "number one", "1" -> 0
-        "two", "second", "number two", "2" -> 1
-        "three", "third", "3" -> 2
-        "four", "fourth", "4" -> 3
-        else -> value.trim().toIntOrNull()?.minus(1)?.takeIf { it >= 0 }
+    private fun choiceIndex(value: String): Int? {
+        val normalized = value.trim().lowercase(Locale.ROOT)
+        val number = Regex("(?:option|number)\\s*(\\d+)").find(normalized)?.groupValues?.get(1)?.toIntOrNull()
+            ?: normalized.toIntOrNull()
+        if (number != null && number > 0) return number - 1
+        return when (normalized) {
+            "one", "first", "the first one", "option one", "number one" -> 0
+            "two", "second", "the second one", "option two", "number two" -> 1
+            "three", "third", "the third one", "option three", "number three" -> 2
+            "four", "fourth", "the fourth one", "option four", "number four" -> 3
+            "five", "fifth", "the fifth one", "option five", "number five" -> 4
+            "six", "sixth", "the sixth one", "option six", "number six" -> 5
+            "seven", "seventh", "the seventh one", "option seven", "number seven" -> 6
+            "eight", "eighth", "the eighth one", "option eight", "number eight" -> 7
+            else -> null
+        }
     }
 }

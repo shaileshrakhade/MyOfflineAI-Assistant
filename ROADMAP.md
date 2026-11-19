@@ -1,34 +1,18 @@
-# Production roadmap for Subnet
+# Subnet roadmap
 
-The current ZIP is a buildable foundation, not a finished Google Assistant replacement.
+## Implemented in this source update
+- User-started microphone foreground service with persistent notification.
+- Wake phrases: Hey Subnet, Hey Subnet AI, Subnet, Hey Bro.
+- English speech recognition and spoken replies.
+- Contact disambiguation by spoken option number or unique full name.
+- Direct Telecom call placement after permissions and contact selection.
+- Local notes, learned phrase aliases, command history, and JSON learning-data export/import.
+- Speech recognition retry/backoff and service status broadcast to the app UI.
 
-## Phase 1 – Stabilize command understanding
-- Add a formal intent/slot model and Marathi-English test corpus.
-- Add phonetic/fuzzy matching for contact aliases.
-- Keep pending dialog state across speech turns and app recreation.
-- Add automated tests for Marathi number words, contact names and command variants.
-
-## Phase 2 – Wake word
-- Select and license an on-device keyword spotter (evaluate Picovoice Porcupine or an open-source alternative).
-- Add a foreground microphone service with visible notification and explicit user start/stop controls.
-- Test screen-off behaviour, battery consumption, Android 13–15 restrictions and OEM battery managers.
-- Never record or upload ambient audio; process wake-word audio locally.
-
-## Phase 3 – Owner authentication
-- Enroll multiple owner voice samples in a speaker-verification model.
-- Store encrypted speaker embeddings locally and synchronize only with end-to-end encryption.
-- Add anti-replay/liveness checks and fallback device biometric/PIN.
-- Require step-up authentication for calls to premium numbers, messages, payments and security changes.
-
-## Phase 4 – Central knowledge sync
-- Create Firebase or Supabase project.
-- Authenticate each device to the same owner account.
-- Store only user-approved command aliases and preferences, not raw audio.
-- Add versioning, conflict resolution, encryption, device revocation and backup/restore.
-- Add offline queue and sync status.
-
-## Phase 5 – Self-improvement with approval
-- Record failed utterance text only after user consent.
-- Ask the owner to confirm a proposed phrase-to-intent mapping.
-- Keep a versioned knowledge base with undo/delete.
-- Never let the model invent or execute a new system action without explicit confirmation.
+## Remaining work for a production-grade assistant
+- Integrate a dedicated low-power keyword spotting model for true wake-word detection rather than repeatedly opening Android SpeechRecognizer sessions.
+- Evaluate a local speech-to-text model and local LLM runtime for offline natural-language understanding.
+- Add encrypted Room database storage, backup/restore for notes and attachments, and user-controlled retention/deletion.
+- Add robust app launching, alarm scheduling, reminders, and notification actions with Android background-execution constraints respected.
+- Test on physical devices across Android 8–16 and manufacturer battery-management variants.
+- Add automated instrumentation tests and verify calls, lock-screen operation, and recognition reliability on target devices.

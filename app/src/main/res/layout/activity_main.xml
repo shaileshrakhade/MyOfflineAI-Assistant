@@ -92,7 +92,7 @@
                 android:gravity="center_vertical"
                 android:minHeight="76dp"
                 android:padding="14dp"
-                android:text="Ready when you are. Speak or type a command."
+                android:text="Start background listening, then say “Hey Subnet” or “Hey Bro”."
                 android:textColor="@color/sb_text"
                 android:textSize="16sp" />
 
@@ -102,7 +102,7 @@
                 android:layout_height="56dp"
                 android:layout_marginTop="16dp"
                 android:backgroundTint="@color/sb_primary"
-                android:text="🎙  Start wake listening"
+                android:text="🎙  Start background wake listening"
                 android:textAllCaps="false"
                 android:textColor="@android:color/white"
                 android:textSize="16sp" />
@@ -187,7 +187,7 @@
             android:layout_marginTop="20dp"
             android:padding="14dp"
             android:background="@drawable/status_surface"
-            android:text="Try: “Open WhatsApp”  •  “Call Alex”  •  “Note buy groceries”  •  “Teach my office as work”"
+            android:text="Try: “Hey Subnet, call Bhargavi”  •  “Note buy groceries”  •  “Teach my office as work”. Listening continues with the screen locked while the foreground service is active."
             android:textColor="@color/sb_muted"
             android:textSize="13sp" />
 

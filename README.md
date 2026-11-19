@@ -65,3 +65,8 @@ Tap **Suggest a feature**, enter a short title and description, then tap **Save 
 - **Offline speech:** requesting offline recognition does not guarantee that the phone's speech service has an offline Marathi model installed.
 
 Do not treat the current owner profile as a security boundary for sensitive actions.
+
+
+## Build fix in v4
+
+The feature-suggestion title field now uses `EditText.setSingleLine(true)`, fixing the Kotlin compilation error `Unresolved reference: singleLine` reported by GitHub Actions.

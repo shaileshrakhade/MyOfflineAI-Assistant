@@ -283,7 +283,7 @@ class MainActivity : Activity() {
     private fun suggestFeature() {
         val titleInput = EditText(this).apply {
             hint = "Feature title / काय हवे आहे?"
-            singleLine = true
+            setSingleLine(true)
         }
         val detailsInput = EditText(this).apply {
             hint = "Describe your idea in Marathi or English..."

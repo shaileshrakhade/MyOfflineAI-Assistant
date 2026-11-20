@@ -1,233 +1,274 @@
+
 package com.subnetbyte
 
 import android.Manifest
 import android.app.Activity
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.os.Build
+import android.net.Uri
 import android.os.Bundle
+import android.provider.AlarmClock
+import android.provider.ContactsContract
+import android.speech.RecognizerIntent
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
+import java.io.File
+import java.util.Locale
 
 class MainActivity : Activity() {
+
     private lateinit var status: TextView
     private lateinit var commandInput: EditText
-    private lateinit var setupStatus: TextView
-    private lateinit var learningStatus: TextView
-    private lateinit var learning: LearningStore
-    private lateinit var engine: CommandEngine
-    private var receiverRegistered = false
 
-    companion object {
-        private const val REQ_PERMISSIONS = 201
-        private const val PREFS = "subnet_owner_setup"
-    }
-
-    private val statusReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            status.text = intent?.getStringExtra(WakeWordService.EXTRA_STATUS) ?: return
-            val active = getSharedPreferences("subnet_service_state", MODE_PRIVATE).getBoolean("running", false)
-            findViewById<Button>(R.id.listenButton).text = if (active) "Stop wake listening" else "Start background wake listening"
-            refreshLearningStatus()
-        }
-    }
+    private val audioRequest = 100
+    private val callRequest = 101
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContentView(R.layout.activity_main)
+
         status = findViewById(R.id.status)
         commandInput = findViewById(R.id.commandInput)
-        setupStatus = findViewById(R.id.setupStatus)
-        learningStatus = findViewById(R.id.learningStatus)
-        learning = LearningStore(this)
-        engine = CommandEngine(learning)
 
-        findViewById<Button>(R.id.listenButton).setOnClickListener { toggleWakeService() }
-        findViewById<Button>(R.id.runButton).setOnClickListener { runTypedCommand(commandInput.text.toString()) }
-        findViewById<Button>(R.id.setupButton).setOnClickListener { ownerSetup() }
-        findViewById<Button>(R.id.exportButton).setOnClickListener { exportLearning() }
-        findViewById<Button>(R.id.importButton).setOnClickListener { importLearning() }
-        findViewById<Button>(R.id.suggestButton).setOnClickListener { suggestFeature() }
-        refreshSetupStatus()
-        if (getSharedPreferences("subnet_service_state", MODE_PRIVATE).getBoolean("running", false)) {
-            findViewById<Button>(R.id.listenButton).text = "Stop wake listening"
-            status.text = "Subnet background listening is enabled. Say Hey Subnet or Hey Bro."
-        }
-        if (!getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("complete", false)) {
-            status.text = "Please complete owner setup first."
-        }
+        findViewById<Button>(R.id.listenButton)
+            .setOnClickListener { listen() }
+
+        findViewById<Button>(R.id.runButton)
+            .setOnClickListener {
+                runCommand(commandInput.text.toString())
+            }
     }
 
-    override fun onStart() {
-        super.onStart()
-        val filter = IntentFilter(WakeWordService.ACTION_STATUS)
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(statusReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(statusReceiver, filter)
-        }
-        receiverRegistered = true
-    }
+    private fun listen() {
 
-    override fun onStop() {
-        if (receiverRegistered) {
-            unregisterReceiver(statusReceiver)
-            receiverRegistered = false
-        }
-        super.onStop()
-    }
-
-    private fun refreshSetupStatus() {
-        val owner = getSharedPreferences(PREFS, MODE_PRIVATE).getString("owner_name", null)
-        setupStatus.text = if (owner.isNullOrBlank()) "Setup required" else "Owner: $owner"
-        refreshLearningStatus()
-    }
-
-    private fun refreshLearningStatus() {
-        learningStatus.text = "Local memory: ${learning.learnedPhraseCount()} learned phrases • ${learning.taskCount()} saved tasks"
-    }
-
-    private fun toggleWakeService() {
-        if (getSharedPreferences("subnet_service_state", MODE_PRIVATE).getBoolean("running", false)) {
-            stopWakeService()
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(
+                arrayOf(Manifest.permission.RECORD_AUDIO),
+                audioRequest
+            )
             return
         }
-        if (!getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("complete", false)) {
-            status.text = "Complete owner setup before enabling Subnet."
-            ownerSetup()
-            return
-        }
-        val needed = mutableListOf(Manifest.permission.RECORD_AUDIO)
-        if (Build.VERSION.SDK_INT >= 33) needed.add(Manifest.permission.POST_NOTIFICATIONS)
-        val missing = needed.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isNotEmpty()) {
-            requestPermissions(missing.toTypedArray(), REQ_PERMISSIONS)
-            return
-        }
-        startWakeService()
-    }
 
-    private fun startWakeService() {
+        val intent = Intent(
+            RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+        ).apply {
+
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+            )
+
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE,
+                Locale.getDefault()
+            )
+
+            putExtra(
+                RecognizerIntent.EXTRA_PREFER_OFFLINE,
+                true
+            )
+
+            putExtra(
+                RecognizerIntent.EXTRA_PROMPT,
+                "Speak a command"
+            )
+        }
+
         try {
-            val intent = Intent(this, WakeWordService::class.java).setAction(WakeWordService.ACTION_START)
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
-            findViewById<Button>(R.id.listenButton).text = "Stop wake listening"
-            status.text = "Starting Subnet voice service..."
+            startActivityForResult(intent, audioRequest)
         } catch (e: Exception) {
-            status.text = "Could not start voice service: ${e.localizedMessage ?: "Android restriction"}"
+            status.text =
+                "No speech recognition app is available."
         }
     }
 
-    private fun stopWakeService() {
-        startService(Intent(this, WakeWordService::class.java).setAction(WakeWordService.ACTION_STOP))
-        getSharedPreferences("subnet_service_state", MODE_PRIVATE).edit().putBoolean("running", false).apply()
-        findViewById<Button>(R.id.listenButton).text = "Start wake listening"
-        status.text = "Subnet wake listening stopped."
-    }
-
-    private fun runTypedCommand(raw: String) {
-        val text = raw.trim()
-        if (text.isBlank()) return
-        when (val command = engine.parse(text)) {
-            is AssistantCommand.Teach -> {
-                learning.addAlias(command.phrase, command.meaning)
-                status.text = "Learned locally: ${command.phrase} means ${command.meaning}."
-            }
-            is AssistantCommand.Note -> {
-                openFileOutput("notes.txt", MODE_APPEND).bufferedWriter().use { it.append("${System.currentTimeMillis()} | ${command.text}\n") }
-                learning.recordTask(text, "note saved locally")
-                status.text = "Note saved in this phone's private app storage."
-            }
-            is AssistantCommand.OpenApp, is AssistantCommand.Alarm -> {
-                val result = DeviceActionExecutor.execute(this, command)
-                status.text = result.message
-                learning.recordTask(text, result.message)
-            }
-            AssistantCommand.Help -> status.text = "Try: open WhatsApp, open Settings, open Wi-Fi, open Bluetooth, open Camera, open YouTube, set alarm for 7 AM, call a contact, save a note, or teach a phrase."
-            is AssistantCommand.Call -> {
-                status.text = "For calls, start voice listening and say Hey Subnet, call ${command.contact}."
-            }
-            is AssistantCommand.Choose -> status.text = "There is no pending selection."
-            AssistantCommand.Unknown -> status.text = "I couldn't match that command. Try: open WhatsApp or open Settings."
-        }
-        refreshLearningStatus()
-    }
-
-    private fun ownerSetup() {
-        val input = EditText(this).apply { hint = "Your name" }
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Subnet owner setup")
-            .setMessage("Your profile and learned phrases are stored locally on this phone.")
-            .setView(input)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Save") { _, _ ->
-                val name = input.text.toString().trim()
-                if (name.isBlank()) {
-                    status.text = "Please enter your name."
-                } else {
-                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("owner_name", name).putBoolean("complete", true).apply()
-                    refreshSetupStatus()
-                    status.text = "Setup complete. Hello $name!"
-                }
-            }.show()
-    }
-
-    private fun exportLearning() {
-        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/json"
-            putExtra(Intent.EXTRA_TITLE, "subnet-learning.json")
-        }
-        @Suppress("DEPRECATION")
-        startActivityForResult(intent, 102)
-    }
-
-    private fun importLearning() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/json"
-        }
-        @Suppress("DEPRECATION")
-        startActivityForResult(intent, 103)
-    }
-
-    @Deprecated("Legacy document picker result API")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    @Deprecated("Legacy activity result API")
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK || data?.data == null) return
-        val uri = data.data!!
-        try {
-            when (requestCode) {
-                102 -> contentResolver.openOutputStream(uri)?.use { it.write(learning.exportJson().toByteArray()) }
-                103 -> contentResolver.openInputStream(uri)?.bufferedReader()?.use { learning.importJson(it.readText()) }
+
+        if (requestCode == audioRequest && resultCode == RESULT_OK) {
+
+            val spoken = data
+                ?.getStringArrayListExtra(
+                    RecognizerIntent.EXTRA_RESULTS
+                )
+                ?.firstOrNull()
+                .orEmpty()
+
+            commandInput.setText(spoken)
+            runCommand(spoken)
+        }
+    }
+
+    private fun runCommand(raw: String) {
+
+        val command = raw.trim()
+        val lower = command.lowercase(Locale.ROOT)
+
+        when {
+
+            lower.startsWith("note ") ||
+            lower.startsWith("remember ") -> {
+
+                val note = command.substringAfter(" ").trim()
+
+                if (note.isNotBlank()) {
+
+                    File(filesDir, "notes.txt")
+                        .appendText(
+                            "${System.currentTimeMillis()} | $note\n"
+                        )
+
+                    status.text = "Saved locally: $note"
+                }
             }
-            refreshLearningStatus()
-            status.text = "Local learning data imported or exported."
-        } catch (e: Exception) {
-            status.text = "File operation failed: ${e.localizedMessage}"
+
+            lower.startsWith("open ") -> {
+                openApp(command.substringAfter(" ").trim())
+            }
+
+            lower.startsWith("set alarm for ") -> {
+                setAlarm(command.drop("set alarm for ".length))
+            }
+
+            lower.startsWith("call ") -> {
+                callContact(command.substringAfter(" ").trim())
+            }
+
+            else -> {
+                status.text =
+                    "Try: open Chrome, note hello, set alarm for 7:00 AM, or call contact."
+            }
         }
     }
 
-    private fun suggestFeature() {
-        val title = EditText(this).apply { hint = "Feature title" }
-        val details = EditText(this).apply { hint = "Describe your idea"; minLines = 3 }
-        val layout = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL; setPadding(24, 8, 24, 0); addView(title); addView(details) }
-        android.app.AlertDialog.Builder(this).setTitle("Suggest a feature").setView(layout)
-            .setNegativeButton("Cancel", null).setPositiveButton("Save") { _, _ ->
-                openFileOutput("feature_suggestions.txt", MODE_APPEND).bufferedWriter().use { it.append("${title.text}\n${details.text}\n---\n") }
-                status.text = "Suggestion saved locally."
-            }.show()
+    private fun openApp(name: String) {
+
+        val pm = packageManager
+
+        val apps = pm.getInstalledApplications(
+            PackageManager.GET_META_DATA
+        )
+
+        val match = apps.firstOrNull {
+            pm.getApplicationLabel(it)
+                .toString()
+                .equals(name, ignoreCase = true)
+        }
+
+        val launchIntent = match?.let {
+            pm.getLaunchIntentForPackage(it.packageName)
+        }
+
+        if (launchIntent != null) {
+            startActivity(launchIntent)
+        } else {
+            status.text = "Couldn't find app: $name"
+        }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_PERMISSIONS) {
-            val requiredGranted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-            if (requiredGranted) startWakeService() else status.text = "Grant microphone permission to enable voice listening."
+    private fun setAlarm(timeText: String) {
+
+        val regex = Regex(
+            "([0-9]{1,2}):([0-9]{2})[ ]*(am|pm)?",
+            RegexOption.IGNORE_CASE
+        )
+
+        val match = regex.find(timeText)
+
+        if (match == null) {
+            status.text = "Enter time like 7:30 AM."
+            return
         }
+
+        var hour = match.groupValues[1].toInt()
+        val minute = match.groupValues[2].toInt()
+
+        val meridiem = match.groupValues[3].lowercase()
+
+        if (hour !in 1..12 || minute !in 0..59) {
+            status.text = "Invalid alarm time."
+            return
+        }
+
+        if (meridiem == "pm" && hour < 12) {
+            hour += 12
+        }
+
+        if (meridiem == "am" && hour == 12) {
+            hour = 0
+        }
+
+        val intent = Intent(
+            AlarmClock.ACTION_SET_ALARM
+        ).apply {
+
+            putExtra(AlarmClock.EXTRA_HOUR, hour)
+            putExtra(AlarmClock.EXTRA_MINUTES, minute)
+
+            putExtra(
+                AlarmClock.EXTRA_MESSAGE,
+                "Subnet Assistant"
+            )
+        }
+
+        if (intent.resolveActivity(packageManager) != null) {
+            startActivity(intent)
+        } else {
+            status.text = "No alarm app available."
+        }
+    }
+
+    private fun callContact(name: String) {
+
+        if (checkSelfPermission(Manifest.permission.READ_CONTACTS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+
+            requestPermissions(
+                arrayOf(Manifest.permission.READ_CONTACTS),
+                callRequest
+            )
+
+            status.text = "Allow Contacts permission and try again."
+            return
+        }
+
+        val cursor = contentResolver.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            arrayOf(
+                ContactsContract.CommonDataKinds.Phone.NUMBER
+            ),
+            "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?",
+            arrayOf("%$name%"),
+            null
+        )
+
+        val number = cursor?.use {
+            if (it.moveToFirst()) it.getString(0) else null
+        }
+
+        if (number.isNullOrBlank()) {
+            status.text = "Contact not found: $name"
+            return
+        }
+
+        val intent = Intent(
+            Intent.ACTION_DIAL,
+            Uri.parse("tel:$number")
+        )
+
+        startActivity(intent)
+
+        status.text =
+            "Dialer opened. Review and confirm the call."
     }
 }

@@ -101,7 +101,7 @@ class MainActivity : Activity() {
             ownerSetup()
             return
         }
-        val needed = mutableListOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE)
+        val needed = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= 33) needed.add(Manifest.permission.POST_NOTIFICATIONS)
         val missing = needed.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) {
@@ -132,17 +132,27 @@ class MainActivity : Activity() {
     private fun runTypedCommand(raw: String) {
         val text = raw.trim()
         if (text.isBlank()) return
-        val command = engine.parse(text)
-        when (command) {
+        when (val command = engine.parse(text)) {
             is AssistantCommand.Teach -> {
                 learning.addAlias(command.phrase, command.meaning)
                 status.text = "Learned locally: ${command.phrase} means ${command.meaning}."
             }
             is AssistantCommand.Note -> {
                 openFileOutput("notes.txt", MODE_APPEND).bufferedWriter().use { it.append("${System.currentTimeMillis()} | ${command.text}\n") }
+                learning.recordTask(text, "note saved locally")
                 status.text = "Note saved in this phone's private app storage."
             }
-            else -> status.text = "For hands-free commands, start wake listening and say Hey Subnet or Hey Bro."
+            is AssistantCommand.OpenApp, is AssistantCommand.Alarm -> {
+                val result = DeviceActionExecutor.execute(this, command)
+                status.text = result.message
+                learning.recordTask(text, result.message)
+            }
+            AssistantCommand.Help -> status.text = "Try: open WhatsApp, open Settings, open Wi-Fi, open Bluetooth, open Camera, open YouTube, set alarm for 7 AM, call a contact, save a note, or teach a phrase."
+            is AssistantCommand.Call -> {
+                status.text = "For calls, start voice listening and say Hey Subnet, call ${command.contact}."
+            }
+            is AssistantCommand.Choose -> status.text = "There is no pending selection."
+            AssistantCommand.Unknown -> status.text = "I couldn't match that command. Try: open WhatsApp or open Settings."
         }
         refreshLearningStatus()
     }
@@ -216,9 +226,8 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_PERMISSIONS) {
-            val requiredGranted = listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS, Manifest.permission.CALL_PHONE)
-                .all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
-            if (requiredGranted) startWakeService() else status.text = "Grant microphone, contacts, and phone permissions to use voice calling."
+            val requiredGranted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            if (requiredGranted) startWakeService() else status.text = "Grant microphone permission to enable voice listening."
         }
     }
 }

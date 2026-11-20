@@ -32,6 +32,8 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
     private var awaitingCommand = false
     private var awaitingContactChoice = false
     private var retryCount = 0
+    private var restartPending = false
+    private val mainHandler by lazy { android.os.Handler(mainLooper) }
     private var pendingContacts: List<PhoneMatch> = emptyList()
     private lateinit var learning: LearningStore
     private lateinit var engine: CommandEngine
@@ -93,6 +95,10 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             val languageResult = tts?.setLanguage(Locale.US) ?: TextToSpeech.LANG_NOT_SUPPORTED
             ttsReady = languageResult >= TextToSpeech.LANG_AVAILABLE
+            publishStatus(if (ttsReady) "English speech output is ready." else "TTS engine is installed, but English voice data is unavailable. Check Android Text-to-Speech settings.")
+        } else {
+            ttsReady = false
+            publishStatus("Text-to-Speech engine is unavailable. Install or enable a TTS engine in Android settings.")
         }
     }
 
@@ -134,8 +140,15 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                 SpeechRecognizer.createSpeechRecognizer(this)
             }
         } catch (e: Exception) {
-            publishStatus("Speech recognition could not start: ${e.localizedMessage ?: "unknown error"}")
-            null
+            // Some Android builds advertise on-device recognition but fail to bind it.
+            // Fall back to the installed system recognizer rather than stopping silently.
+            try {
+                publishStatus("On-device speech provider unavailable; trying the phone's installed speech provider.")
+                SpeechRecognizer.createSpeechRecognizer(this)
+            } catch (fallback: Exception) {
+                publishStatus("Speech recognition unavailable. Install or enable a speech recognition service in Android settings. ${fallback.localizedMessage ?: ""}")
+                null
+            }
         }
     }
 
@@ -143,7 +156,11 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
         if (!running) return
         recognizer?.cancel()
         recognizer?.destroy()
-        recognizer = newRecognizer() ?: return
+        recognizer = newRecognizer()
+        if (recognizer == null) {
+            scheduleListen(5000L)
+            return
+        }
         recognizer?.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
                 publishStatus(if (awaitingContactChoice) "Say the contact name or option number." else if (awaitingCommand) "Subnet is listening for your command." else "Listening for Hey Subnet or Hey Bro...")
@@ -159,13 +176,14 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                     SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Speech service network error. Checking again."
                     SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> null
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech service is busy. Retrying."
-                    SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> "Speech service disconnected. Retrying."
+                    SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> "Speech provider disconnected. Reconnecting; if this continues, install or update the phone's speech recognition service."
+                    SpeechRecognizer.ERROR_CLIENT -> "Speech session was reset. Reconnecting."
                     else -> "Speech recognition interrupted. Retrying."
                 }
                 if (msg != null) publishStatus(msg)
                 retryCount = (retryCount + 1).coerceAtMost(5)
-                val delayMs = if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1800L else (700L shl retryCount).coerceAtMost(12000L)
-                android.os.Handler(mainLooper).postDelayed({ listenForWakeOrReply() }, delayMs)
+                val delayMs = if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 2500L else (1000L shl retryCount).coerceAtMost(15000L)
+                scheduleListen(delayMs)
             }
             override fun onResults(results: Bundle?) {
                 if (!running) return
@@ -204,6 +222,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-US")
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
         }
         try {
@@ -212,8 +231,17 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             publishStatus("Could not open the microphone. Retrying.")
             recognizer?.destroy()
             recognizer = null
-            android.os.Handler(mainLooper).postDelayed({ listenForWakeOrReply() }, 1200)
+            scheduleListen(1800L)
         }
+    }
+
+    private fun scheduleListen(delayMs: Long) {
+        if (!running || restartPending) return
+        restartPending = true
+        mainHandler.postDelayed({
+            restartPending = false
+            if (running) listenForWakeOrReply()
+        }, delayMs)
     }
 
     private fun stripWakePhrase(text: String): String? {
@@ -237,9 +265,13 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
                 learning.addAlias(command.phrase, command.meaning)
                 say("I learned that ${command.phrase} means ${command.meaning}. This is saved locally.")
             }
-            is AssistantCommand.OpenApp -> say("To open ${command.app}, please unlock your phone or open Subnet. Android may block apps opening from the background.")
-            is AssistantCommand.Alarm -> say("Please open Subnet to set this alarm safely.")
-            AssistantCommand.Help -> say("I can call contacts, save notes, learn phrases, and help with app commands. Say call followed by a contact name.")
+            is AssistantCommand.OpenApp, is AssistantCommand.Alarm -> {
+                val result = DeviceActionExecutor.execute(this, command)
+                publishStatus(result.message)
+                learning.recordTask(text, result.message)
+                say(result.message)
+            }
+            AssistantCommand.Help -> say("I can open installed apps and phone settings, set alarms, call contacts, save notes, and learn phrases. Try open WhatsApp or open Settings.")
             AssistantCommand.Unknown -> say("I didn't understand that. Please say it another way.")
         }
     }
@@ -325,6 +357,7 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
     private fun say(message: String, after: (() -> Unit)? = null) {
         publishStatus(message)
         if (!ttsReady || tts == null) {
+            publishStatus("${message} (Speech output unavailable: enable or install a Text-to-Speech engine in Android settings.)")
             after?.invoke() ?: listenForWakeOrReply()
             return
         }
@@ -335,7 +368,11 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) { android.os.Handler(mainLooper).post { if (running) (after ?: { listenForWakeOrReply() }).invoke() } }
         })
-        tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        val result = tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        if (result == TextToSpeech.ERROR) {
+            publishStatus("$message (Text-to-Speech failed. Check Android Text-to-Speech settings.)")
+            after?.invoke() ?: listenForWakeOrReply()
+        }
     }
 
     private fun publishStatus(message: String) {
@@ -350,6 +387,8 @@ class WakeWordService : Service(), TextToSpeech.OnInitListener {
 
     private fun stopListening() {
         running = false
+        restartPending = false
+        mainHandler.removeCallbacksAndMessages(null)
         getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit().putBoolean("running", false).apply()
         publishStatus("Subnet wake listening stopped.")
         recognizer?.cancel()

@@ -1,85 +1,40 @@
-# Subnet Assistant (SB) — Android starter
+# Subnet Voice Assistant (Android)
 
-Package: `com.subnetbyte`
+Subnet is an Android voice-command assistant using the Android speech-recognition and Text-to-Speech services. It supports English commands, local phrase aliases/history, app launching, selected Android settings screens, alarms, notes, and contact calling (with permissions).
 
-## What's included in this update
+## Build
 
-- Refreshed, mobile-friendly home screen with clear sections and larger controls.
-- Custom **SB** launcher icon and in-app brand mark.
-- A **Suggest a feature** screen: enter an idea in English, save it locally, then share it using Android's share sheet (email, messaging, notes, etc.).
-- English-only speech recognition and command parsing.
-- Wake phrase activation for **“Hey Subnet”**, **“Subnet”**, **“Hey Bro”**, and **“Bro”** while the app screen is open.
-- Local command history (up to 100 recent commands), learned aliases, and JSON export/import.
+- Android Studio with JDK 17, Android SDK 35, and Gradle plugin 8.7.3.
+- Open this folder in Android Studio and run `:app:assembleDebug`, or use the included GitHub Actions workflow.
+- Package: `com.subnetbyte`; min Android version: 8.0 (API 26).
 
-## Build in Android Studio
+## First run
 
-1. Extract the ZIP.
-2. Open the extracted `MyOfflineAI-Assistant-updated` folder in Android Studio.
-3. Allow Gradle sync to complete.
-4. Select **Build > Build Bundle(s) / APK(s) > Build APK(s)**.
-5. Find the APK at `app/build/outputs/apk/debug/app-debug.apk`.
+1. Install and open Subnet.
+2. Grant microphone permission when enabling wake listening. Contacts and phone permissions are only needed for contact calling.
+3. Check Android Settings → General management/System → Text-to-speech output and ensure an English TTS voice is installed.
+4. Ensure a speech-recognition provider is installed/enabled. On Android 12+, Subnet prefers the on-device recognizer when Android reports one is available and requests offline recognition. If the provider is missing, the app reports this instead of pretending speech is offline.
+5. Tap **Start background wake listening**, then say **Hey Subnet** followed by a command. The foreground notification has a Stop listening action.
 
-The project uses Android Gradle Plugin 8.7.3, Kotlin 2.0.21, Java 17, compileSdk 35, and minSdk 26. XML resources and the command/learning Kotlin files passed local syntax checks. A full Android Gradle build could not be run here because this environment does not have the Android SDK/Gradle wrapper installed; verify the full build in Android Studio before installing.
+## Example commands
 
-## Push the project from Termux
+- `open WhatsApp`, `launch YouTube`, `open Camera`, `open Settings`
+- `open Wi-Fi`, `open Bluetooth`, `open Location`, `open Display settings`
+- `set alarm for 7 AM`
+- `call Alex`
+- `save note buy groceries`
+- `teach start music as open Spotify`
 
-First allow Termux to access Android shared storage:
+App names are matched against launcher apps installed on the phone. Some protected system functions cannot be toggled directly by third-party apps; Subnet opens the relevant Android settings/panel instead. Android may also prevent an app from launching another activity while Subnet is running in the background or the screen is locked. Unlocking the phone may be required.
 
-```bash
-termux-setup-storage
-pkg update
-pkg install git unzip -y
-```
+## Speech and privacy limitations
 
-Assuming the ZIP is in your Android Download folder:
+- Android's `SpeechRecognizer` is provided by the device's installed recognition service. Subnet cannot repair a broken/missing provider or guarantee offline recognition on every phone. For best offline results, install the phone's supported offline English speech model/provider.
+- The app only listens while the user explicitly starts its microphone foreground service; stop it from the app or its notification to release the microphone.
+- Android/Google Assistant's separate **Hey Google** hotword is controlled by the system/Google app, not by Subnet.
+- Owner profile currently stores the owner's display name and local learning data. It does **not** implement reliable biometric speaker identification. A voice sample or phrase alone is not secure proof of identity; do not treat this build as owner-only voice authentication. Reliable local speaker verification needs a dedicated speaker-embedding model and device-side evaluation.
+- Voice commands and app actions are limited by Android version, OEM restrictions, app installation, permissions, and lock-screen/background-launch rules.
 
-```bash
-cd ~/storage/downloads
-unzip MyOfflineAI-Assistant-updated.zip
-git clone https://github.com/shaileshrakhade/MyOfflineAI-Assistant.git
-cd MyOfflineAI-Assistant
-cp -r ../MyOfflineAI-Assistant-updated/. .
-git add .
-git commit -m "Upgrade Subnet Assistant UI and SB branding"
-git push
-```
+## Local data
 
-This clone-and-copy method preserves the repository's existing Git history. If the repository is empty, it works as well. GitHub may ask you to authenticate; use a GitHub Personal Access Token when prompted for an HTTPS password. Never put your token in source code or commit it.
-
-For future updates, copy the changed project files into the cloned repository folder, then run:
-
-```bash
-git add .
-git commit -m "Describe your change"
-git push
-```
-
-## Suggesting ideas from inside the app
-
-Tap **Suggest a feature**, enter a short title and description, then tap **Save & share**. The suggestion is saved in the app's private local files (`feature_suggestions.txt`) and the Android share sheet opens. Choose an app to send it. Suggestions are not automatically uploaded to GitHub; this starter does not contain a server or GitHub token.
-
-## Wake phrase behavior and limitations
-
-- Tap **Start wake listening** and keep the Subnet screen open. The assistant listens for “Hey Subnet” / “Subnet” and “Hey Bro”.
-- After a wake phrase, say a command. You can also say the wake phrase and command together, for example: “Hey Bro, open WhatsApp”.
-- This implementation uses Android SpeechRecognizer sessions and restarts them while the activity is visible. It is **not** a true always-on, background, locked-screen hotword engine. Android may also require a network-backed speech service unless an on-device English model is installed.
-- Background wake-word support would require a dedicated microphone foreground service, persistent notification, Android-version-specific permissions, and a local keyword-spotting model. It is deliberately not claimed by this build.
-
-## Learning behavior
-
-- Commands are stored locally (up to 100 recent entries) to provide a task history.
-- Teach custom phrases with commands such as `Teach my office as work`; learned aliases are applied to later commands.
-- Learning data can be exported and imported as JSON. This is local, rule-based personalization—not autonomous model training or a cloud AI model.
-
-## Other limitations
-
-- Owner setup stores a local profile only; it does not authenticate a speaker or provide secure voice biometrics.
-- Commands use explicit patterns and learned aliases, not a full conversational AI model.
-- The app opens the phone dialer for user confirmation rather than placing calls silently.
-
-Do not treat the current owner profile as a security boundary for sensitive actions.
-
-
-## Build fix in v4
-
-The feature-suggestion title field now uses `EditText.setSingleLine(true)`, fixing the Kotlin compilation error `Unresolved reference: singleLine` reported by GitHub Actions.
+Learned phrase aliases and command history are stored in app-private SharedPreferences. Use Export/Import in the app to back up or transfer learning data. Notes and feature suggestions are also stored in app-private files.

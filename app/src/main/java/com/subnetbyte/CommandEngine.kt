@@ -33,7 +33,10 @@ class CommandEngine(private val learning: LearningStore) {
         Regex("^(?:note|remember|save note|write down)\\s+(.+)$", RegexOption.IGNORE_CASE).find(resolved)?.let {
             return AssistantCommand.Note(it.groupValues[1].trim())
         }
-        Regex("^(?:open|launch|start)\\s+(.+)$", RegexOption.IGNORE_CASE).find(resolved)?.let {
+        Regex("^(?:please\\s+)?(?:open|launch|start|show|go to)\\s+(.+)$", RegexOption.IGNORE_CASE).find(resolved)?.let {
+            return AssistantCommand.OpenApp(it.groupValues[1].trim().removeSuffix(" please"))
+        }
+        Regex("^(?:turn on|enable)\\s+(wifi|wi-fi|bluetooth|location)$", RegexOption.IGNORE_CASE).find(resolved)?.let {
             return AssistantCommand.OpenApp(it.groupValues[1].trim())
         }
         Regex("^(?:set\\s+)?alarm(?:\\s+for)?\\s+(.+)$", RegexOption.IGNORE_CASE).find(resolved)?.let {
